@@ -50,3 +50,11 @@ The app handles everything automatically:
 3. **Install** → Copies files to correct locations
 4. **Cleanup** → Removes temporary files
 5. **Restart** → Restarts Steam with SteamTools
+
+## ⚖️ License
+
+This work is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International License**.
+
+To view a copy of this license, visit [http://creativecommons.org/licenses/by-nc/4.0/](http://creativecommons.org/licenses/by-nc/4.0/).
+
+You are free to **share** (copy and redistribute) and **adapt** (modify) this software, provided you give appropriate attribution and use it for **Non-Commercial purposes only**.
