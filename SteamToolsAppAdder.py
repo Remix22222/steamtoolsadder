@@ -140,6 +140,13 @@ class SteamWebSearch:
 class SteamToolsDownloader:
     """Handles Steam game downloading and installation logic."""
 
+    def resource_path(relative_path):
+        try:
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+        return os.path.join(base_path, relative_path)
+
     def __init__(self):
         self.games_cache = {}
         self.base_url = "https://api.steampowered.com"
@@ -489,10 +496,19 @@ class SteamToolsInstaller:
         self.root.title("Steam Tools App Adder Made By Remix")
         self.root.geometry("600x600")
         self.root.resizable(False, False)
+        def resource_path(relative_path):
+            try:
+                base_path = sys._MEIPASS
+            except Exception:
+                base_path = os.path.abspath(".")
+            return os.path.join(base_path, relative_path)
         if Path("icon.ico").exists():
             root.wm_iconbitmap("icon.ico")
-        else:
-            pass
+        elif Path(resource_path("icon.ico")).exists():
+            try:
+                root.wm_iconbitmap(resource_path("icon.ico"))
+            except:
+                pass
         # Color scheme
         self.bg_color = "#1a1b26"
         self.card_color = "#24283b"
