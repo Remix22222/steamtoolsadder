@@ -57,10 +57,36 @@ class AutoUpdater:
         """
         try:
             headers = {'Accept': 'application/vnd.github.v3+json'}
-            response = requests.get(UPDATE_CHECK_URL, headers=headers, timeout=10)
-            response.raise_for_status()
 
-            release_data = response.json()
+            # Try the /latest endpoint first
+            try:
+                response = requests.get(UPDATE_CHECK_URL, headers=headers, timeout=10)
+                response.raise_for_status()
+                release_data = response.json()
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 404:
+                    # If /latest fails, get all releases and find the newest
+                    print("Latest release endpoint failed, fetching all releases...")
+                    all_releases_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
+                    response = requests.get(all_releases_url, headers=headers, timeout=10)
+                    response.raise_for_status()
+
+                    releases = response.json()
+                    if not releases:
+                        raise Exception("No releases found in repository")
+
+                    # Filter out drafts and pre-releases, then get the first one
+                    valid_releases = [r for r in releases if
+                                      not r.get('draft', False) and not r.get('prerelease', False)]
+
+                    if not valid_releases:
+                        # If no valid releases, use the first release anyway
+                        valid_releases = releases
+
+                    release_data = valid_releases[0]
+                else:
+                    raise
+
             self.latest_version = release_data['tag_name'].lstrip('v')
 
             # Get download URL for .exe file
@@ -164,202 +190,6 @@ del "%~f0"
         except Exception as e:
             print(f"Error installing update: {e}")
             return False
-
-
-class UpdateDialog:
-    """Dialog window for update notifications."""
-
-    def __init__(self, parent, update_info, updater, on_complete=None):
-        self.parent = parent
-        self.update_info = update_info
-        self.updater = updater
-        self.on_complete = on_complete
-        self.dialog = None
-
-    def show(self):
-        """Display the update dialog."""
-        self.dialog = tk.Toplevel(self.parent)
-        self.dialog.title("Update Available")
-        self.dialog.transient(self.parent)
-        self.dialog.grab_set()
-        self.dialog.resizable(False, False)
-
-        # Colors
-        bg_color = "#1a1b26"
-        card_color = "#24283b"
-        text_color = "#c0caf5"
-        accent_color = "#5c7cfa"
-
-        self.dialog.configure(bg=bg_color)
-
-        width = 500
-        height = 450
-        screen_x = self.parent.winfo_screenwidth()
-        screen_y = self.parent.winfo_screenheight()
-        center_x = (screen_x - width) // 2
-        center_y = (screen_y - height) // 2
-        self.dialog.geometry(f"{width}x{height}+{center_x}+{center_y}")
-
-        # Header
-        header_frame = tk.Frame(self.dialog, bg="#51cf66", height=100)
-        header_frame.pack(fill=tk.X)
-        header_frame.pack_propagate(False)
-
-        title = tk.Label(header_frame, text="🎉 Update Available!",
-                         font=("Segoe UI", 18, "bold"),
-                         fg="#ffffff", bg="#51cf66")
-        title.pack(pady=(25, 5))
-
-        version_text = f"Version {self.update_info['version']} is now available"
-        subtitle = tk.Label(header_frame, text=version_text,
-                            font=("Segoe UI", 10),
-                            fg="#e0ffe0", bg="#51cf66")
-        subtitle.pack(pady=(0, 15))
-
-        # Content
-        content_frame = tk.Frame(self.dialog, bg=bg_color)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
-
-        # Current version
-        current_label = tk.Label(content_frame,
-                                 text=f"Current version: {self.update_info['current_version']}",
-                                 font=("Segoe UI", 10),
-                                 fg="#7982a9", bg=bg_color)
-        current_label.pack(anchor="w", pady=(0, 15))
-
-        # Release notes
-        notes_label = tk.Label(content_frame, text="What's New:",
-                               font=("Segoe UI", 10, "bold"),
-                               fg=text_color, bg=bg_color)
-        notes_label.pack(anchor="w", pady=(0, 8))
-
-        notes_frame = tk.Frame(content_frame, bg=card_color)
-        notes_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
-
-        notes_text = tk.Text(notes_frame, font=("Segoe UI", 9),
-                             bg=card_color, fg=text_color,
-                             relief=tk.FLAT, bd=0, padx=15, pady=15,
-                             height=8, wrap=tk.WORD, state=tk.DISABLED)
-        notes_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        scrollbar = tk.Scrollbar(notes_frame, command=notes_text.yview,
-                                 bg=card_color, troughcolor=card_color)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        notes_text.config(yscrollcommand=scrollbar.set)
-
-        notes_text.config(state=tk.NORMAL)
-        notes_text.insert(1.0, self.update_info.get('notes', 'No release notes available.'))
-        notes_text.config(state=tk.DISABLED)
-
-        # Progress label (hidden initially)
-        self.progress_label = tk.Label(content_frame, text="",
-                                       font=("Segoe UI", 9),
-                                       fg=accent_color, bg=bg_color)
-        self.progress_label.pack(pady=(0, 10))
-
-        # Buttons
-        button_frame = tk.Frame(content_frame, bg=bg_color)
-        button_frame.pack(fill=tk.X)
-
-        if self.update_info['is_executable'] and self.update_info.get('url'):
-            # Can auto-update
-            from_button = ModernButton
-
-            self.update_btn = from_button(button_frame, "⬇️ Download & Install",
-                                          self.start_update,
-                                          width=180, height=45, bg=bg_color)
-            self.update_btn.pack(side=tk.LEFT, padx=(0, 10))
-        else:
-            # Running from source or no download URL
-            pass
-
-        view_btn = ModernButton(button_frame, "🌐 View on GitHub",
-                                lambda: webbrowser.open(
-                                    self.update_info.get('html_url', f'https://github.com/{GITHUB_REPO}/releases')),
-                                width=150, height=45, bg=bg_color)
-        view_btn.pack(side=tk.LEFT, padx=(0, 10))
-
-        skip_btn = ModernButton(button_frame, "Skip", self.skip_update,
-                                width=80, height=45, bg=bg_color)
-        skip_btn.pack(side=tk.LEFT)
-
-    def update_progress(self, message):
-        """Update progress label."""
-        if self.dialog and self.dialog.winfo_exists():
-            self.progress_label.config(text=message)
-
-    def start_update(self):
-        """Start the update download and installation."""
-        if hasattr(self, 'update_btn'):
-            self.update_btn.configure_state(False)
-
-        thread = threading.Thread(target=self.download_and_install)
-        thread.daemon = True
-        thread.start()
-
-    def download_and_install(self):
-        """Download and install update in background thread."""
-        try:
-            # Download
-            update_file = self.updater.download_update(
-                self.update_info['url'],
-                progress_callback=lambda msg: self.dialog.after(0, lambda: self.update_progress(msg))
-            )
-
-            if not update_file:
-                self.dialog.after(0, lambda: messagebox.showerror(
-                    "Update Failed",
-                    "Failed to download update. Please download manually from GitHub."
-                ))
-                self.dialog.after(0, self.skip_update)
-                return
-
-            # Confirm installation
-            self.dialog.after(0, lambda: self.update_progress("Ready to install..."))
-
-            result = messagebox.askyesno(
-                "Install Update",
-                "Update downloaded successfully!\n\n"
-                "The application will restart to complete the installation.\n\n"
-                "Continue?",
-                parent=self.dialog
-            )
-
-            if result:
-                # Install and restart
-                if self.updater.install_update(update_file):
-                    messagebox.showinfo("Update Started",
-                                        "Update installation started.\n"
-                                        "Application will restart automatically.",
-                                        parent=self.dialog)
-                    # Exit application
-                    sys.exit(0)
-                else:
-                    messagebox.showerror("Installation Failed",
-                                         "Failed to install update. Please install manually.",
-                                         parent=self.dialog)
-            else:
-                # Clean up downloaded file
-                try:
-                    os.remove(update_file)
-                except:
-                    pass
-
-        except Exception as e:
-            self.dialog.after(0, lambda: messagebox.showerror(
-                "Update Error",
-                f"An error occurred during update:\n{str(e)}"
-            ))
-
-        finally:
-            self.dialog.after(0, self.skip_update)
-
-    def skip_update(self):
-        """Close dialog and skip update."""
-        if self.dialog and self.dialog.winfo_exists():
-            self.dialog.destroy()
-        if self.on_complete:
-            self.on_complete()
 
 
 class SteamWebSearch:
@@ -880,6 +710,7 @@ class SteamToolsInstaller:
 
     def check_for_updates_silent(self):
         """Check for updates in background without blocking UI."""
+        self.log("🔍 Checking for updates...")
         thread = threading.Thread(target=self._check_updates_thread)
         thread.daemon = True
         thread.start()
@@ -889,20 +720,91 @@ class SteamToolsInstaller:
         try:
             update_info = self.updater.check_for_updates()
 
+            if update_info.get('error'):
+                # Error occurred during update check
+                error_msg = f"⚠️ Update check failed: {update_info['error']}"
+                self.root.after(0, lambda: self.log(error_msg))
+                return
+
             if update_info.get('available'):
-                # Show update dialog on main thread
-                self.root.after(0, lambda: self.show_update_dialog(update_info))
+                if update_info.get('is_executable') and update_info.get('url'):
+                    # Auto-update for compiled executables
+                    self.root.after(0, lambda: self.auto_install_update(update_info))
+                else:
+                    # Running from source - just log
+                    msg = f"ℹ️ Update v{update_info.get('version')} available (manual update required - running from source)"
+                    self.root.after(0, lambda: self.log(msg))
             elif not update_info.get('is_executable'):
                 # Running from source
-                self.root.after(0, lambda: self.log("Running from source code (updates disabled)"))
+                self.root.after(0, lambda: self.log("ℹ️ Running from source (auto-updates disabled)"))
+            else:
+                # No updates available
+                self.root.after(0, lambda: self.log(f"✓ You're running the latest version (v{APP_VERSION})"))
 
         except Exception as e:
+            error_msg = f"⚠️ Update check failed: {str(e)}"
+            self.root.after(0, lambda: self.log(error_msg))
             print(f"Update check failed: {e}")
 
-    def show_update_dialog(self, update_info):
-        """Display update notification dialog."""
-        dialog = UpdateDialog(self.root, update_info, self.updater)
-        dialog.show()
+    def auto_install_update(self, update_info):
+        """Automatically download and install update without user interaction."""
+        msg = f"🔄 New version detected: v{update_info['version']} (current: v{update_info['current_version']})"
+        self.log(msg)
+        self.log("Starting automatic update - please wait...")
+        self.update_status(f"Downloading update v{update_info['version']}...")
+
+        # Disable install button during update
+        self.install_btn.configure_state(False)
+
+        # Start download in background thread
+        thread = threading.Thread(target=self._auto_download_and_install, args=(update_info,))
+        thread.daemon = True
+        thread.start()
+
+    def _auto_download_and_install(self, update_info):
+        """Download and install update automatically in background."""
+        try:
+            # Download
+            def progress_callback(msg):
+                self.root.after(0, lambda: self.log(msg))
+                self.root.after(0, lambda: self.update_status(msg))
+
+            update_file = self.updater.download_update(
+                update_info['url'],
+                progress_callback=progress_callback
+            )
+
+            if not update_file:
+                self.root.after(0, lambda: self.log("❌ Auto-update failed: Could not download"))
+                self.root.after(0, lambda: self.update_status("Ready"))
+                self.root.after(0, lambda: self.install_btn.configure_state(True))
+                return
+
+            self.root.after(0, lambda: self.log("✓ Update downloaded successfully"))
+            self.root.after(0, lambda: self.update_status("Installing update..."))
+            self.root.after(0, lambda: self.log("📦 Installing update and restarting application..."))
+
+            # Install
+            if self.updater.install_update(update_file):
+                self.root.after(0, lambda: self.log("✓ Update complete - Application will restart now"))
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Update Complete",
+                    f"Successfully updated to v{update_info['version']}!\n\n"
+                    "The application will restart automatically.",
+                    parent=self.root
+                ))
+                time.sleep(1)
+                # Exit to trigger update
+                sys.exit(0)
+            else:
+                self.root.after(0, lambda: self.log("❌ Update installation failed"))
+                self.root.after(0, lambda: self.update_status("Ready"))
+                self.root.after(0, lambda: self.install_btn.configure_state(True))
+
+        except Exception as e:
+            self.root.after(0, lambda: self.log(f"❌ Auto-update error: {str(e)}"))
+            self.root.after(0, lambda: self.update_status("Ready"))
+            self.root.after(0, lambda: self.install_btn.configure_state(True))
 
     def show_steamtools_missing_dialog(self):
         """Display dialog when SteamTools is not found."""
