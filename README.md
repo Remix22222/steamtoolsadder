@@ -2,39 +2,53 @@
 
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/RemixDev/SteamTools-App-Adder/releases)
 [![Steam Required](https://img.shields.io/badge/Steam-Required-black?style=for-the-badge&logo=steam&logoColor=white)](https://store.steampowered.com/)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](#)
-[![Status](https://img.shields.io/badge/Status-Beta-yellow?style=for-the-badge)](#)
+[![Status](https://img.shields.io/badge/Status-Stable-green?style=for-the-badge)](#)
+[![Downloads](https://img.shields.io/github/downloads/RemixDev/SteamTools-App-Adder/total?style=for-the-badge&color=success)](https://github.com/RemixDev/SteamTools-App-Adder/releases)
 
-A Windows GUI application for installing games via SteamTools.
+A modern Windows application that makes installing games through SteamTools easy and fast. Just type a game name, click install, and let the automation do the rest.
 
 ## ✨ Features
 
-- **⚡ One-Click Installation** - Fully automated process
-- **📊 Real-time Progress** - Live activity log and status updates
-- **🔄 Auto Steam Restart** - Automatically closes and restarts Steam
-- **🔧 Admin Auto-Request** - Automatically requests required permissions
-- **📁 Auto File Management** - Handles all file copying and cleanup
+- **🔍 Smart Game Search** - Find games by name, App ID, or URL
+- **⚡ One-Click Install** - Fully automated with progress tracking
+- **🎨 Clean Dark Theme** - Modern interface with smooth animations
+- **📊 Live Activity Log** - See what's happening in real-time
+- **🔄 Auto Steam Restart** - Closes and reopens Steam automatically
+- **🔧 Admin Auto-Detect** - Requests permissions when needed
+- **📁 Smart File Management** - Everything handled automatically
 
-## 🚀 Quick Start
+## 📥 Quick Download
 
-### Download Executable
-1. Download `SteamToolsAppAdder.exe` from [Releases](https://github.com/RemixDev/SteamTools-App-Adder/releases)
-2. Run the executable (allow admin permissions)
-3. Search for games by name or use App IDs
+### Latest Version: v1.0.0
+**Download:** [SteamToolsAppAdder.exe](https://github.com/Remix22222/steamtoolsadder/releases/latest)
 
-### Run from Source
-```bash
-git clone https://github.com/Remix22222/steamtoolsadder.git
-cd steamtoolsadder
-pip install -r requirements.txt
-python steamtoolsadder.py
+### Prerequisites:
+1. **Steam** - Must be installed
+2. **SteamTools** - Will auto-detect or prompt to install
+
+## 🚀 How to Use
+
+### Step-by-Step:
+1. **Download** the .exe from Releases
+2. **Run** it (allow admin permissions if asked)
+3. **Type** a game name, App ID, or Steam URL
+4. **Click** Install
+5. **Wait** for the process to complete
+
+### What You Can Search:
+```
+✅ Game Names:    "Cyberpunk 2077", "Counter-Strike 2"
+✅ App IDs:       "1091500", "730"
+✅ Steam URLs:    "https://store.steampowered.com/app/1091500/"
+✅ Partial Names: "cyberpunk", "witcher"
 ```
 
+## 🎮 Installation Process
 
-## 📥 How to Use
+The app handles everything automatically:
 
-### Basic Usage
-1. **Launch** the application
-2. **Enter** game name, App ID, or Steam URL
-3. **Click** "Install" or press Enter
-4. **Wait** for automated installation
+1. **Search** → Finds your game in the database
+2. **Download** → Gets the required files
+3. **Install** → Copies files to correct locations
+4. **Cleanup** → Removes temporary files
+5. **Restart** → Restarts Steam with SteamTools

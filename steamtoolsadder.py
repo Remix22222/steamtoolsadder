@@ -13,6 +13,128 @@ import threading
 import sys
 import ctypes
 import webbrowser
+from urllib.parse import quote
+import io
+from bs4 import BeautifulSoup
+import http.client
+from typing import Optional, Tuple, List, Dict, Any
+
+
+class SteamWebSearch:
+    """Handles searching Steam store for games using web scraping."""
+
+    def __init__(self):
+        self.search_cache = {}
+
+    def search_steam_store(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Search Steam store for games by name.
+        Returns list of dicts with 'name', 'appid', and 'url' keys.
+        """
+        if query in self.search_cache:
+            return self.search_cache[query]
+
+        try:
+            # URL encode the query
+            encoded_query = quote(query)
+            url = f"https://store.steampowered.com/search/?term={encoded_query}"
+
+            # Set headers to mimic a browser
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+            }
+
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+
+            # Parse HTML
+            soup = BeautifulSoup(response.content, 'html.parser')
+            results = []
+
+            # Find all search result rows
+            search_result_rows = soup.find_all('a', {'data-ds-appid': True})
+
+            for row in search_result_rows[:10]:  # Limit to first 10 results
+                try:
+                    # Get appid from data attribute
+                    appid = row.get('data-ds-appid', '').split(',')[0]
+                    if not appid.isdigit():
+                        continue
+
+                    # Get game name
+                    title_span = row.find('span', class_='title')
+                    if not title_span:
+                        continue
+
+                    name = title_span.text.strip()
+
+                    # Get game URL
+                    href = row.get('href', '')
+
+                    results.append({
+                        'name': name,
+                        'appid': int(appid),
+                        'url': href
+                    })
+
+                except (AttributeError, ValueError, IndexError):
+                    continue
+
+            # Alternative method if first method doesn't work
+            if not results:
+                # Look for app links directly
+                for link in soup.find_all('a', href=True):
+                    href = link['href']
+                    app_match = re.search(r'/app/(\d+)/', href)
+                    if app_match:
+                        appid = app_match.group(1)
+                        name = link.text.strip()
+                        if name and appid.isdigit():
+                            results.append({
+                                'name': name[:100] if name else f"App {appid}",
+                                'appid': int(appid),
+                                'url': href if href.startswith('http') else f'https://store.steampowered.com{href}'
+                            })
+
+            # Remove duplicates by appid
+            unique_results = []
+            seen_appids = set()
+            for result in results:
+                if result['appid'] not in seen_appids:
+                    unique_results.append(result)
+                    seen_appids.add(result['appid'])
+
+            self.search_cache[query] = unique_results
+            return unique_results
+
+        except Exception as e:
+            print(f"Error searching Steam store: {e}")
+            return []
+
+    def extract_appid_from_url(self, url: str) -> Optional[int]:
+        """Extract App ID from any Steam URL."""
+        try:
+            # Common Steam URL patterns
+            patterns = [
+                r'/app/(\d+)',  # Standard app URLs
+                r'app/(\d+)',  # Alternative format
+                r'AppId=(\d+)',  # Query parameter
+                r'id=(\d+)',  # Another query parameter
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, url)
+                if match and match.group(1).isdigit():
+                    return int(match.group(1))
+
+            return None
+        except Exception as e:
+            print(f"Error extracting App ID from URL: {e}")
+            return None
 
 
 class SteamToolsDownloader:
@@ -24,6 +146,7 @@ class SteamToolsDownloader:
         self.r2_base_url = "https://pub-5b6d3b7c03fd4ac1afb5bd3017850e20.r2.dev"
         self.steamtools_exe = self.find_steamtools_exe()
         self._steam_folder = None
+        self.web_searcher = SteamWebSearch()
 
     def find_steamtools_exe(self):
         """Find SteamTools executable in common installation paths."""
@@ -71,18 +194,28 @@ class SteamToolsDownloader:
         return None
 
     def find_game(self, query):
-        """Find game by name, AppID, or URL with fuzzy matching support."""
+        """Find game by name, AppID, or URL with multiple search methods."""
         # Check if it's a Steam URL
         if 'store.steampowered.com' in query or 'steamcommunity.com' in query:
-            match = re.search(r'/app/(\d+)', query)
-            if match:
-                return int(match.group(1))
+            appid = self.web_searcher.extract_appid_from_url(query)
+            if appid:
+                return appid
 
         # Check if it's a direct AppID
         if query.isdigit():
             return int(query)
 
-        # Search by name
+        # Try web search first
+        web_results = self.web_searcher.search_steam_store(query)
+        if web_results:
+            # Return first result for direct match, or list for selection
+            if len(web_results) == 1:
+                return web_results[0]['appid']
+            else:
+                # Return list of dicts for better display
+                return web_results
+
+        # Fallback to API search if web search fails
         games = self.get_app_list()
         if not games:
             return None
@@ -96,7 +229,8 @@ class SteamToolsDownloader:
         # Fuzzy match
         matches = get_close_matches(query_lower, games.keys(), n=5, cutoff=0.7)
         if matches:
-            return [(match, games[match]) for match in matches]
+            # Convert to list of dicts for consistency
+            return [{'name': match, 'appid': games[match]} for match in matches]
 
         return None
 
@@ -366,6 +500,7 @@ class SteamToolsInstaller:
 
         self.downloader = SteamToolsDownloader()
         self.is_processing = False
+        self.selection_popup = None  # Track the selection popup
 
         self.create_widgets()
 
@@ -469,10 +604,10 @@ class SteamToolsInstaller:
                          fg=self.text_color, bg=self.bg_color)
         title.pack(pady=(0, 10))
 
-        subtitle = tk.Label(main_frame, text="Install games quickly and easily",
+        subtitle = tk.Label(main_frame, text="Enter game name, App ID or Steam URL",
                             font=("Segoe UI", 11),
                             fg="#7982a9", bg=self.bg_color)
-        subtitle.pack(pady=(0, 30))
+        subtitle.pack(pady=(0, 5))
 
         # Input card
         input_card = tk.Frame(main_frame, bg=self.card_color)
@@ -481,7 +616,7 @@ class SteamToolsInstaller:
         input_inner = tk.Frame(input_card, bg=self.card_color)
         input_inner.pack(padx=20, pady=20)
 
-        input_label = tk.Label(input_inner, text="App ID or Steam URL",
+        input_label = tk.Label(input_inner, text="Search for Game",
                                font=("Segoe UI", 10),
                                fg="#7982a9", bg=self.card_color)
         input_label.pack(anchor="w", pady=(0, 8))
@@ -499,7 +634,7 @@ class SteamToolsInstaller:
         btn_frame = tk.Frame(main_frame, bg=self.bg_color)
         btn_frame.pack(pady=10)
 
-        self.install_btn = ModernButton(btn_frame, "Install", self.start_download,
+        self.install_btn = ModernButton(btn_frame, "Search & Install", self.start_download,
                                         width=200, height=50, bg=self.bg_color)
         self.install_btn.pack()
 
@@ -603,9 +738,9 @@ class SteamToolsInstaller:
             if isinstance(app_match_result, int):
                 # Direct match found
                 self.root.after(0, lambda: self.download_thread_start(app_match_result))
-            elif isinstance(app_match_result, list):
+            elif isinstance(app_match_result, list) and app_match_result:
                 # Multiple matches found
-                self.root.after(0, lambda: self.show_match_selection(app_match_result))
+                self.root.after(0, lambda: self.show_match_selection(app_match_result, query))
             else:
                 # No match found
                 self.root.after(0, lambda: messagebox.showerror("Not Found",
@@ -618,14 +753,28 @@ class SteamToolsInstaller:
                                                             f"An error occurred during search:\n{str(e)}"))
             self.root.after(0, self.finish_processing)
 
-    def show_match_selection(self, matches):
+    def show_match_selection(self, matches, original_query):
         """Display dialog for selecting from multiple game matches."""
-        popup = tk.Toplevel(self.root)
-        popup.title("Select Game")
+        # Close any existing selection popup
+        if self.selection_popup and self.selection_popup.winfo_exists():
+            self.selection_popup.destroy()
+
+        self.selection_popup = tk.Toplevel(self.root)
+        popup = self.selection_popup
+        popup.title(f"Select Game - Search: '{original_query}'")
         popup.transient(self.root)
         popup.grab_set()
         popup.resizable(False, False)
         popup.configure(bg=self.bg_color)
+
+        # Set up window close handler
+        def on_popup_close():
+            """Handle popup window close event."""
+            if popup.winfo_exists():
+                popup.destroy()
+            self.root.after(0, self.finish_processing)
+
+        popup.protocol("WM_DELETE_WINDOW", on_popup_close)
 
         popup_width = 550
         popup_height = 500
@@ -648,7 +797,7 @@ class SteamToolsInstaller:
         title.pack(pady=(20, 8))
 
         subtitle = tk.Label(header_frame,
-                            text="Multiple games matched your search. Please select one:",
+                            text=f"Multiple games matched '{original_query}'. Please select one:",
                             font=("Segoe UI", 10),
                             fg="#e0e0ff", bg="#5c7cfa")
         subtitle.pack(pady=(0, 15))
@@ -679,8 +828,17 @@ class SteamToolsInstaller:
         match_listbox.config(yscrollcommand=scrollbar.set)
 
         # Populate listbox
-        for name, app_id in matches:
-            match_listbox.insert(tk.END, f"  {name[:45]}")
+        for i, match in enumerate(matches):
+            if isinstance(match, dict):
+                name = match.get('name', 'Unknown')
+                appid = match.get('appid', 'N/A')
+                display_text = f"  {name[:45]} (App ID: {appid})"
+            elif isinstance(match, tuple) and len(match) == 2:
+                name, appid = match
+                display_text = f"  {name[:45]} (App ID: {appid})"
+            else:
+                display_text = f"  {str(match)[:50]}"
+            match_listbox.insert(tk.END, display_text)
 
         match_listbox.select_set(0)
 
@@ -690,10 +848,20 @@ class SteamToolsInstaller:
                 selection = match_listbox.curselection()
                 if selection:
                     idx = selection[0]
-                    app_id = matches[idx][1]
-                    popup.destroy()
-                    self.download_thread_start(app_id)
-                    return
+                    match = matches[idx]
+
+                    # Extract appid from different match formats
+                    if isinstance(match, dict):
+                        app_id = match.get('appid')
+                    elif isinstance(match, tuple) and len(match) == 2:
+                        app_id = match[1]  # (name, appid) format
+                    else:
+                        app_id = match  # assume it's already an appid
+
+                    if app_id:
+                        popup.destroy()
+                        self.download_thread_start(app_id)
+                        return
                 messagebox.showwarning("Selection Error", "Please select a game from the list.")
             except Exception as e:
                 messagebox.showerror("Error", f"Error during selection: {str(e)}")
@@ -701,18 +869,42 @@ class SteamToolsInstaller:
                 self.finish_processing()
 
         def on_cancel():
-            """Cancel selection."""
+            """Cancel selection and close popup."""
             popup.destroy()
-            self.finish_processing()
+            self.root.after(0, self.finish_processing)
+
+        def on_try_again():
+            """Try again with a different search."""
+            popup.destroy()
+            self.root.after(0, self.finish_processing)
+            # Focus back to search entry for new input
+            self.root.after(100, lambda: self.search_entry.focus_set())
+            self.root.after(100, lambda: self.search_entry.select_range(0, tk.END))
 
         # Buttons
         button_frame = tk.Frame(content_frame, bg=self.bg_color)
         button_frame.pack(fill=tk.X)
 
-        ModernButton(button_frame, "✓  Confirm", on_select,
-                     width=230, height=50, bg=self.bg_color).pack(side=tk.LEFT, padx=5)
-        ModernButton(button_frame, "✕  Cancel", on_cancel,
-                     width=120, height=50, bg=self.bg_color).pack(side=tk.LEFT, padx=5)
+        # Left side buttons
+        left_button_frame = tk.Frame(button_frame, bg=self.bg_color)
+        left_button_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Right side buttons
+        right_button_frame = tk.Frame(button_frame, bg=self.bg_color)
+        right_button_frame.pack(side=tk.RIGHT)
+
+        ModernButton(left_button_frame, "✓  Confirm Selection", on_select,
+                     width=180, height=45, bg=self.bg_color).pack(side=tk.LEFT, padx=2)
+
+        ModernButton(right_button_frame, "↻  Try Different Search", on_try_again,
+                     width=160, height=45, bg=self.bg_color).pack(side=tk.LEFT, padx=2)
+
+        ModernButton(right_button_frame, "✕  Cancel", on_cancel,
+                     width=100, height=45, bg=self.bg_color).pack(side=tk.LEFT, padx=2)
+
+        # Bind Enter key to confirm selection
+        match_listbox.bind("<Double-Button-1>", lambda e: on_select())
+        match_listbox.bind("<Return>", lambda e: on_select())
 
         self.root.wait_window(popup)
 
@@ -799,6 +991,9 @@ class SteamToolsInstaller:
         self.progress_bar.stop()
         self.install_btn.configure_state(True)
         self.update_status("Ready")
+
+        # Clear selection popup reference
+        self.selection_popup = None
 
 
 def is_admin():
