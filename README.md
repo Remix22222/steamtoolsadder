@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](#)
 [![Status](https://img.shields.io/badge/Status-Beta-yellow?style=for-the-badge)](#)
 
-A Windows GUI application for installing games via SteamTools with fixed name searching functionality.
+A Windows GUI application for installing games via SteamTools.
 
 ## ✨ Features
 
